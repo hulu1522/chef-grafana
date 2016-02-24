@@ -11,25 +11,30 @@ module GrafanaCookbook
     # +user+:: A grafana user with admin privileges
     # +password+:: The grafana user's password
     def login(host, port, user, password)
-      http = Net::HTTP.new(host, port)
-      request = Net::HTTP::Post.new('/login')
-      request.add_field('Content-Type', 'application/json;charset=utf-8')
-      request.body = { 'User' => user, 'email' => '', 'Password' => password }.to_json
+      # Check if we have a session already
+      if $grafana_session.nil?
+        http = Net::HTTP.new(host, port)
+        request = Net::HTTP::Post.new('/login')
+        request.add_field('Content-Type', 'application/json;charset=utf-8')
+        request.body = { 'User' => user, 'email' => '', 'Password' => password }.to_json
 
-      response = with_limited_retry tries: 10, exceptions: Errno::ECONNREFUSED do
-        http.request(request)
+        response = with_limited_retry tries: 10, exceptions: Errno::ECONNREFUSED do
+          http.request(request)
+        end
+
+        handle_response(
+          request,
+          response,
+          success: 'Login was successful.',
+          unauthorized: 'Invalid username/password.',
+          unknown_code: 'DataSourceAPI::login unchecked response code: %{code}'
+        )
+
+        $grafana_session = response['set-cookie'][/grafana_sess=(\w+);/, 1]
+      else
+        $grafana_session
       end
 
-      handle_response(
-        request,
-        response,
-        success: 'Login was successful.',
-        unauthorized: 'Invalid username/password.',
-        unknown_code: 'DataSourceAPI::login unchecked response code: %{code}'
-      )
-
-      # sorry for the fancy hackery - rubists are welcome to make this better
-      response['set-cookie'][/grafana_sess=(\w+);/, 1]
     rescue BackendError
       nil
     end
